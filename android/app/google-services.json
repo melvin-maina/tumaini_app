@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "560362187604",
+    "project_id": "tumaini-web-app-388d0",
+    "storage_bucket": "tumaini-web-app-388d0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:560362187604:android:59b1798b3828e2cff276c1",
+        "android_client_info": {
+          "package_name": "com.example.tumaini_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB0UNQ9NsIx9HYf_GL6wct-NGAlvEEZui0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

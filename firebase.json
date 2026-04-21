@@ -1,0 +1,28 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "tumaini-web-app-388d0",
+          "appId": "1:560362187604:android:59b1798b3828e2cff276c1",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "tumaini-web-app-388d0",
+          "configurations": {
+            "android": "1:560362187604:android:59b1798b3828e2cff276c1",
+            "ios": "1:560362187604:ios:f73701bff78297a7f276c1",
+            "macos": "1:560362187604:ios:f73701bff78297a7f276c1",
+            "web": "1:560362187604:web:40cfc62decdc07b3f276c1",
+            "windows": "1:560362187604:web:4ee0b9f94ddd478cf276c1"
+          }
+        }
+      }
+    }
+  }
+}

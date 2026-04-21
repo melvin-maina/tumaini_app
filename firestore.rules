@@ -1,0 +1,381 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUserExists() {
+      return signedIn() &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function currentUserRole() {
+      return currentUserExists()
+          ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+          : null;
+    }
+
+    function isAdmin() {
+      return currentUserRole() == 'admin';
+    }
+
+    function isProvider() {
+      return currentUserRole() == 'provider';
+    }
+
+    function isResident() {
+      return currentUserRole() == 'resident';
+    }
+
+    function isSelf(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function providerOwnsAssignedRequest() {
+      return isProvider() &&
+          resource.data.assignedProviderId == request.auth.uid;
+    }
+
+    function isProviderSelfUpdate(userId) {
+      return isSelf(userId) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'role',
+            'verified',
+            'verifiedAt',
+            'rejectedAt',
+            'resubmittedAt',
+            'status',
+            'verificationDecision',
+            'verificationNote'
+          ]);
+    }
+
+    function isProviderVerificationReapply(userId) {
+      return isSelf(userId) &&
+          currentUserRole() == 'provider' &&
+          resource.data.status == 'rejected' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'verified',
+            'status',
+            'verificationDecision',
+            'verificationNote',
+            'rejectedAt',
+            'resubmittedAt',
+            'updatedAt'
+          ]) &&
+          request.resource.data.verified == false &&
+          request.resource.data.status == 'pending' &&
+          !('verificationDecision' in request.resource.data) &&
+          !('verificationNote' in request.resource.data) &&
+          !('rejectedAt' in request.resource.data) &&
+          ('resubmittedAt' in request.resource.data) &&
+          ('updatedAt' in request.resource.data);
+    }
+
+    function isProviderAcceptingAssignedRequest() {
+      return providerOwnsAssignedRequest() &&
+          resource.data.status == 'assigned' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'assignedProviderId',
+            'acceptedAt',
+            'inProgressAt',
+            'assignedAt',
+            'expectedArrivalWindow',
+            'residentNotificationMessage',
+            'providerStatusMessage',
+            'updatedAt'
+          ]) &&
+          request.resource.data.status == 'inProgress' &&
+          request.resource.data.assignedProviderId == request.auth.uid &&
+          request.resource.data.expectedArrivalWindow is string;
+    }
+
+    function isProviderMarkingInProgress() {
+      return providerOwnsAssignedRequest() &&
+          resource.data.status in ['assigned', 'inProgress'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'inProgressAt',
+            'residentNotificationMessage',
+            'updatedAt'
+          ]) &&
+          request.resource.data.status == 'inProgress';
+    }
+
+    function isProviderMarkingCompleted() {
+      return providerOwnsAssignedRequest() &&
+          resource.data.status == 'inProgress' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'completedAt',
+            'residentNotificationMessage',
+            'updatedAt'
+          ]) &&
+          request.resource.data.status == 'completed';
+    }
+
+    function isProviderUpdatingArrivalWindow() {
+      return providerOwnsAssignedRequest() &&
+          resource.data.status in ['assigned', 'inProgress'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'expectedArrivalWindow',
+            'residentNotificationMessage',
+            'providerStatusMessage',
+            'updatedAt'
+          ]) &&
+          request.resource.data.status == resource.data.status &&
+          request.resource.data.assignedProviderId == resource.data.assignedProviderId &&
+          request.resource.data.expectedArrivalWindow is string;
+    }
+
+    function isProviderDecliningAssignedRequest() {
+      return providerOwnsAssignedRequest() &&
+          resource.data.status == 'assigned' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'declineCount',
+            'lastDeclineReason',
+            'lastDeclinedByProviderId',
+            'lastDeclinedByProviderName',
+            'lastDeclinedAt',
+            'residentNotificationMessage',
+            'providerStatusMessage',
+            'assignedProviderId',
+            'assignedProviderName',
+            'assignedProviderPhone',
+            'assignedProviderSpecialty',
+            'assignedAt',
+            'expectedArrivalWindow',
+            'providerNotificationMessage',
+            'updatedAt'
+          ]) &&
+          request.resource.data.status == 'pending' &&
+          request.resource.data.declineCount == (resource.data.declineCount is int
+              ? resource.data.declineCount + 1
+              : 1) &&
+          request.resource.data.lastDeclineReason is string &&
+          request.resource.data.lastDeclinedByProviderId == request.auth.uid &&
+          request.resource.data.lastDeclinedByProviderName is string &&
+          !('assignedProviderId' in request.resource.data) &&
+          !('assignedProviderName' in request.resource.data) &&
+          !('assignedProviderPhone' in request.resource.data) &&
+          !('assignedProviderSpecialty' in request.resource.data) &&
+          !('assignedAt' in request.resource.data) &&
+          !('expectedArrivalWindow' in request.resource.data) &&
+          !('providerNotificationMessage' in request.resource.data);
+    }
+
+    function isResidentFeedbackUpdate() {
+      return signedIn() &&
+          resource.data.userId == request.auth.uid &&
+          (resource.data.status == 'completed') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'feedbackSubmitted',
+            'feedbackAt',
+            'updatedAt'
+          ]) &&
+          request.resource.data.feedbackSubmitted == true;
+    }
+
+    function isRequestSubmittedNotificationCreate() {
+      return signedIn() &&
+          request.resource.data.type == 'request_submitted' &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.isRead == false &&
+          request.resource.data.userId == 'admin' &&
+          request.resource.data.audience == 'admin' &&
+          request.resource.data.requestId is string &&
+          exists(/databases/$(database)/documents/requests/$(request.resource.data.requestId)) &&
+          get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.auth.uid &&
+          get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status == 'pending';
+    }
+
+    function isProviderWorkflowNotificationCreate() {
+      return signedIn() &&
+          currentUserRole() == 'provider' &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.isRead == false &&
+          request.resource.data.requestId is string &&
+          exists(/databases/$(database)/documents/requests/$(request.resource.data.requestId)) &&
+          (
+            (
+              request.resource.data.type == 'request_accepted' &&
+              request.resource.data.userId is string &&
+              exists(/databases/$(database)/documents/users/$(request.resource.data.userId)) &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.assignedProviderId == request.auth.uid &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status == 'inProgress' &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.resource.data.userId
+            ) ||
+            (
+              request.resource.data.type == 'request_in_progress' &&
+              request.resource.data.userId is string &&
+              exists(/databases/$(database)/documents/users/$(request.resource.data.userId)) &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.assignedProviderId == request.auth.uid &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status == 'inProgress' &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.resource.data.userId
+            ) ||
+            (
+              request.resource.data.type == 'request_completed' &&
+              request.resource.data.userId is string &&
+              exists(/databases/$(database)/documents/users/$(request.resource.data.userId)) &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.assignedProviderId == request.auth.uid &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status == 'completed' &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.resource.data.userId
+            ) ||
+            (
+              request.resource.data.type == 'request_arrival_updated' &&
+              request.resource.data.userId is string &&
+              exists(/databases/$(database)/documents/users/$(request.resource.data.userId)) &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.assignedProviderId == request.auth.uid &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status in ['assigned', 'inProgress'] &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.resource.data.userId
+            ) ||
+            (
+              request.resource.data.type == 'request_declined' &&
+              request.resource.data.userId is string &&
+              exists(/databases/$(database)/documents/users/$(request.resource.data.userId)) &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.lastDeclinedByProviderId == request.auth.uid &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.resource.data.userId
+            ) ||
+            (
+              request.resource.data.type == 'provider_declined_assignment' &&
+              request.resource.data.userId == 'admin' &&
+              request.resource.data.audience == 'admin' &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.lastDeclinedByProviderId == request.auth.uid
+            ) ||
+            (
+              request.resource.data.type == 'request_completed_admin' &&
+              request.resource.data.userId == 'admin' &&
+              request.resource.data.audience == 'admin' &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.assignedProviderId == request.auth.uid &&
+              get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status == 'completed'
+            )
+          );
+    }
+
+    function isProviderApplicationNotificationCreate() {
+      return signedIn() &&
+          currentUserRole() == 'provider' &&
+          request.resource.data.type == 'provider_application_submitted' &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.isRead == false &&
+          request.resource.data.userId == 'admin' &&
+          request.resource.data.audience == 'admin' &&
+          request.resource.data.providerId == request.auth.uid &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isFeedbackReceivedNotificationCreate() {
+      return signedIn() &&
+          currentUserRole() == 'resident' &&
+          request.resource.data.type == 'feedback_received' &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.isRead == false &&
+          request.resource.data.userId == 'admin' &&
+          request.resource.data.audience == 'admin' &&
+          request.resource.data.requestId is string &&
+          exists(/databases/$(database)/documents/requests/$(request.resource.data.requestId)) &&
+          exists(/databases/$(database)/documents/feedback/$(request.resource.data.requestId)) &&
+          get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.userId == request.auth.uid &&
+          get(/databases/$(database)/documents/requests/$(request.resource.data.requestId)).data.status == 'completed';
+    }
+
+    function isSupportTicketNotificationCreate() {
+      return signedIn() &&
+          currentUserRole() == 'resident' &&
+          request.resource.data.type == 'support_ticket_submitted' &&
+          request.resource.data.createdBy == request.auth.uid &&
+          request.resource.data.isRead == false &&
+          request.resource.data.userId == 'admin' &&
+          request.resource.data.audience == 'admin' &&
+          request.resource.data.supportTicketId is string &&
+          exists(/databases/$(database)/documents/support_tickets/$(request.resource.data.supportTicketId)) &&
+          get(/databases/$(database)/documents/support_tickets/$(request.resource.data.supportTicketId)).data.userId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow get: if isSelf(userId) || isAdmin();
+      allow list: if isAdmin();
+      allow create: if isSelf(userId) &&
+          request.resource.data.role in ['resident', 'provider'];
+      allow update: if isAdmin() ||
+          isProviderSelfUpdate(userId) ||
+          isProviderVerificationReapply(userId);
+      allow delete: if isAdmin();
+    }
+
+    match /requests/{requestId} {
+      allow get, list: if isAdmin() ||
+          (signedIn() && resource.data.userId == request.auth.uid) ||
+          (isProvider() &&
+              (resource.data.status == 'pending' ||
+                  resource.data.assignedProviderId == request.auth.uid));
+
+      allow create: if signedIn() &&
+          request.resource.data.userId == request.auth.uid;
+
+      allow update: if isAdmin() ||
+          isResidentFeedbackUpdate() ||
+          isProviderAcceptingAssignedRequest() ||
+          isProviderMarkingInProgress() ||
+          isProviderMarkingCompleted() ||
+          isProviderUpdatingArrivalWindow() ||
+          isProviderDecliningAssignedRequest();
+
+      allow delete: if isAdmin();
+    }
+
+    match /feedback/{feedbackId} {
+      allow get, list: if isAdmin() ||
+          (signedIn() && resource.data.userId == request.auth.uid) ||
+          (isProvider() && resource.data.providerId == request.auth.uid);
+
+      allow create: if signedIn() &&
+          request.resource.data.userId == request.auth.uid;
+
+      allow update, delete: if isAdmin();
+    }
+
+    match /notifications/{notificationId} {
+      allow get, list: if isAdmin() ||
+          (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isAdmin() ||
+          isRequestSubmittedNotificationCreate() ||
+          isProviderWorkflowNotificationCreate() ||
+          isProviderApplicationNotificationCreate() ||
+          isFeedbackReceivedNotificationCreate() ||
+          isSupportTicketNotificationCreate();
+      allow update: if isAdmin() ||
+          (signedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /support_tickets/{ticketId} {
+      allow get, list: if isAdmin() ||
+          (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn() &&
+          request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /uploads/{uploadId} {
+      allow get, list: if isAdmin() ||
+          (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if signedIn() &&
+          request.resource.data.userId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin() ||
+          (signedIn() && resource.data.userId == request.auth.uid);
+    }
+
+    match /activities/{activityId} {
+      allow get, list, create, update, delete: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
